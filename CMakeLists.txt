@@ -84,6 +84,11 @@ if (AMG_WITH_OMP)
     OpenMP::OpenMP_C)
 endif()
 
+set(MPIP_LIB_PATH /pscratch/sd/c/cunyang/software/lib)
+set(MPIP_INCLUDE_PATH /pscratch/sd/c/cunyang/software/include)
+
+include_directories(${MPIP_INCLUDE_PATH})
+
 if (AMG_WITH_MPI)
   find_package(MPI REQUIRED)
   list(APPEND AMG_DEPENDENCIES
@@ -102,7 +107,9 @@ configure_file(
 )
 
 add_executable(amg amg.c)
-target_link_libraries(amg PUBLIC ${AMG_DEPENDENCIES} m)
-target_include_directories(amg PUBLIC ${CMAKE_BINARY_DIR})
+target_link_libraries(amg PRIVATE stdc++)
+
+target_link_libraries(amg PUBLIC -L${MPIP_LIB_PATH} -lmpiP   ${AMG_DEPENDENCIES} m)
+target_include_directories(amg PUBLIC  ${CMAKE_BINARY_DIR})
 
 install(TARGETS amg DESTINATION ${CMAKE_INSTALL_BINDIR})

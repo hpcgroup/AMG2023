@@ -68,6 +68,8 @@ HYPRE_BigInt hypre_map27( HYPRE_BigInt  ix, HYPRE_BigInt  iy, HYPRE_BigInt  iz, 
 #endif
 #define SECOND_TIME 0
 
+hypre_int ITER=1;
+
 hypre_int
 main( hypre_int argc,
       char *argv[] )
@@ -81,6 +83,7 @@ main( hypre_int argc,
    HYPRE_Int           num_iterations;
    HYPRE_Int           max_iter = 1000;
    HYPRE_Int           mg_max_iter = 100;
+   HYPRE_Int 	        cum_num_its=0;
    HYPRE_Real          final_res_norm;
    HYPRE_Real          max_row_sum = 1.0;
    void               *object;
@@ -146,6 +149,8 @@ main( hypre_int argc,
 
    HYPRE_Int           dev_pool_size = 4, um_pool_size = 4;
 
+   HYPRE_Int time_steps;
+
    /* default execution policy and memory space */
    HYPRE_MemoryLocation memory_location = HYPRE_MEMORY_DEVICE;
    HYPRE_ExecutionPolicy default_exec_policy = HYPRE_EXEC_DEVICE;
@@ -167,6 +172,15 @@ main( hypre_int argc,
       else if ( strcmp(argv[arg_index], "-exec_device") == 0 )
       {
          default_exec_policy = HYPRE_EXEC_DEVICE;
+      }
+   }
+
+   for (arg_index = 1; arg_index < argc; arg_index ++)
+   {
+      if ( strcmp(argv[arg_index], "-iter") == 0 )
+      {
+	 arg_index++;
+         ITER=atoi(argv[arg_index++]);
       }
    }
 
@@ -666,121 +680,151 @@ main( hypre_int argc,
       adiak_namevalue("Solver", adiak_general, NULL, "%s", "GMRES");
       CALI_MARK_BEGIN("Problem");
 #endif
-      time_index = hypre_InitializeTiming("GMRES Setup");
+      time_index = hypre_InitializeTiming("GMRES Solver");
       hypre_MPI_Barrier(comm);
 #ifdef USE_CALIPER
       CALI_MARK_BEGIN("Setup");
 #endif
+      time_steps = ITER;
+      double start_time, end_time;
+      MPI_Pcontrol(2); // make sure profile data is reset
+      MPI_Pcontrol(1); // enable profiling
       hypre_BeginTiming(time_index);
-
-      HYPRE_ParCSRGMRESCreate(comm, &pcg_solver);
-      HYPRE_GMRESSetKDim(pcg_solver, k_dim);
-      HYPRE_GMRESSetMaxIter(pcg_solver, max_iter);
-      HYPRE_GMRESSetTol(pcg_solver, tol);
-      HYPRE_GMRESSetAbsoluteTol(pcg_solver, atol);
-      HYPRE_GMRESSetLogging(pcg_solver, 1);
-      HYPRE_GMRESSetPrintLevel(pcg_solver, ioutdat);
-      HYPRE_GMRESSetRelChange(pcg_solver, rel_change);
-
-      /* use BoomerAMG as preconditioner */
-      if (myid == 0 && print_stats) { hypre_printf("Solver: AMG-GMRES\n"); }
-
-      HYPRE_BoomerAMGCreate(&pcg_precond);
-      HYPRE_BoomerAMGSetTol(pcg_precond, pc_tol);
-      /*HYPRE_BoomerAMGSetCoarsenType(pcg_precond, coarsen_type);*/
-      HYPRE_BoomerAMGSetInterpType(pcg_precond, interp_type);
-      HYPRE_BoomerAMGSetPMaxElmts(pcg_precond, P_max_elmts);
-      HYPRE_BoomerAMGSetPrintLevel(pcg_precond, poutdat);
-      HYPRE_BoomerAMGSetMaxIter(pcg_precond, 1);
-      HYPRE_BoomerAMGSetNumSweeps(pcg_precond, num_sweeps);
-      if (relax_type > -1) { HYPRE_BoomerAMGSetRelaxType(pcg_precond, relax_type); }
-      HYPRE_BoomerAMGSetDebugFlag(pcg_precond, debug_flag);
-      HYPRE_BoomerAMGSetRAP2(pcg_precond, rap2);
-      HYPRE_BoomerAMGSetKeepTranspose(pcg_precond, keepTranspose);
-      HYPRE_BoomerAMGSetCumNnzAP(pcg_precond, cum_nnz_AP);
-      HYPRE_BoomerAMGSetMaxRowSum(pcg_precond, max_row_sum);
-      HYPRE_GMRESSetMaxIter(pcg_solver, mg_max_iter);
-      HYPRE_GMRESSetPrecond(pcg_solver,
-                            (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSolve,
-                            (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSetup,
-                            pcg_precond);
-
-      HYPRE_GMRESGetPrecond(pcg_solver, &pcg_precond_gotten);
-      if (pcg_precond_gotten != pcg_precond)
+      for (int j = 0; j < time_steps; j++)
       {
-         hypre_printf("HYPRE_GMRESGetPrecond got bad precond\n");
-         return (-1);
-      }
-      else if (myid == 0 && print_stats)
-      {
-         hypre_printf("HYPRE_GMRESGetPrecond got good precond\n");
-      }
-      HYPRE_GMRESSetup (pcg_solver, (HYPRE_Matrix)parcsr_A, (HYPRE_Vector)b, (HYPRE_Vector)x);
+	      if (myid == 0) {start_time = MPI_Wtime();}
+         HYPRE_ParCSRGMRESCreate(comm, &pcg_solver);
+         HYPRE_GMRESSetKDim(pcg_solver, k_dim);
+         HYPRE_GMRESSetMaxIter(pcg_solver, max_iter);
+         HYPRE_GMRESSetTol(pcg_solver, tol);
+         HYPRE_GMRESSetAbsoluteTol(pcg_solver, atol);
+         HYPRE_GMRESSetLogging(pcg_solver, 1);
+         HYPRE_GMRESSetPrintLevel(pcg_solver, ioutdat);
+         HYPRE_GMRESSetRelChange(pcg_solver, rel_change);
 
+         /* use BoomerAMG as preconditioner */
+         if (myid == 0 && print_stats) { hypre_printf("Solver: AMG-GMRES\n"); }
+
+         HYPRE_BoomerAMGCreate(&pcg_precond);
+         HYPRE_BoomerAMGSetTol(pcg_precond, pc_tol);
+         /*HYPRE_BoomerAMGSetCoarsenType(pcg_precond, coarsen_type);*/
+         HYPRE_BoomerAMGSetInterpType(pcg_precond, interp_type);
+         HYPRE_BoomerAMGSetPMaxElmts(pcg_precond, P_max_elmts);
+         HYPRE_BoomerAMGSetPrintLevel(pcg_precond, poutdat);
+         HYPRE_BoomerAMGSetMaxIter(pcg_precond, 1);
+         HYPRE_BoomerAMGSetNumSweeps(pcg_precond, num_sweeps);
+         if (relax_type > -1) { HYPRE_BoomerAMGSetRelaxType(pcg_precond, relax_type); }
+         HYPRE_BoomerAMGSetDebugFlag(pcg_precond, debug_flag);
+         HYPRE_BoomerAMGSetRAP2(pcg_precond, rap2);
+         HYPRE_BoomerAMGSetKeepTranspose(pcg_precond, keepTranspose);
+         HYPRE_BoomerAMGSetCumNnzAP(pcg_precond, cum_nnz_AP);
+         HYPRE_BoomerAMGSetMaxRowSum(pcg_precond, max_row_sum);
+         HYPRE_GMRESSetMaxIter(pcg_solver, mg_max_iter);
+         HYPRE_GMRESSetPrecond(pcg_solver,
+                              (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSolve,
+                              (HYPRE_PtrToSolverFcn) HYPRE_BoomerAMGSetup,
+                              pcg_precond);
+
+         HYPRE_GMRESGetPrecond(pcg_solver, &pcg_precond_gotten);
+         if (pcg_precond_gotten != pcg_precond)
+         {
+            hypre_printf("HYPRE_GMRESGetPrecond got bad precond\n");
+            return (-1);
+         }
+         else if (myid == 0 && print_stats)
+         {
+            hypre_printf("HYPRE_GMRESGetPrecond got good precond\n");
+         }
+         HYPRE_GMRESSetup (pcg_solver, (HYPRE_Matrix)parcsr_A, (HYPRE_Vector)b, (HYPRE_Vector)x);
+
+         // hypre_MPI_Barrier(comm);
+         // hypre_EndTiming(time_index);
+#ifdef USE_CALIPER
+         CALI_MARK_END("Setup");
+#endif
+         // hypre_GetTiming("Problem 1: AMG Setup Time", &wall_time, comm);
+         // hypre_FinalizeTiming(time_index);
+         // hypre_ClearTiming();
+         // fflush(NULL);
+
+         HYPRE_BoomerAMGGetCumNnzAP(pcg_precond, &cum_nnz_AP);
+
+         // FOM1 = cum_nnz_AP / wall_time;
+         // total_time = wall_time;
+
+         // if (myid == 0)
+         // {
+         //    hypre_printf ("\nFOM_Setup: nnz_AP / Setup Phase Time: %e\n\n", FOM1);
+         // }
+
+#ifdef USE_CALIPER
+         // adiak_namevalue("Setup-FOM", adiak_general, NULL, "%f", FOM1);
+#endif
+         // time_index = hypre_InitializeTiming("GMRES Solve");
+         // hypre_MPI_Barrier(comm);
+#ifdef USE_CALIPER
+         // CALI_MARK_BEGIN("Solve");
+#endif
+      
+         HYPRE_GMRESSolve (pcg_solver, (HYPRE_Matrix)parcsr_A, (HYPRE_Vector)b, (HYPRE_Vector)x);
+   
+         // hypre_MPI_Barrier(comm);
+         // hypre_EndTiming(time_index);
+#ifdef USE_CALIPER
+         CALI_MARK_END("Solve");
+#endif
+         // hypre_GetTiming("Problem 1: AMG-GMRES Solve Time", &wall_time, comm);
+         // hypre_FinalizeTiming(time_index);
+         // hypre_ClearTiming();
+         // fflush(NULL);
+
+         HYPRE_GMRESGetNumIterations(pcg_solver, &num_iterations);
+         HYPRE_GMRESGetFinalRelativeResidualNorm(pcg_solver, &final_res_norm);
+
+         cum_num_its += num_iterations;
+
+         HYPRE_BoomerAMGDestroy(pcg_precond);
+         HYPRE_ParCSRGMRESDestroy(pcg_solver);
+         
+         if (j < time_steps) 
+         {
+            // diagonal -= 0.1 ;
+            // AddOrRestoreAIJ(ij_A, diagonal, 0);
+            HYPRE_ParVectorSetConstantValues(x,0.0);
+            HYPRE_ParVectorSetConstantValues(b,1.0);
+         }
+         if (myid == 0)
+         {
+            end_time = MPI_Wtime();
+            printf("time_steps %3d: %f s\n", j, end_time - start_time);
+         }
+      }
       hypre_MPI_Barrier(comm);
       hypre_EndTiming(time_index);
-#ifdef USE_CALIPER
-      CALI_MARK_END("Setup");
-#endif
-      hypre_GetTiming("Problem 1: AMG Setup Time", &wall_time, comm);
+      MPI_Pcontrol(3); // generate verbose report
+      //MPI_Pcontrol(4); // generate concise report
+      MPI_Pcontrol(0); // disable profiling
+      hypre_GetTiming("Problem 1: Cumulative AMG-GMRES Solve Time", &wall_time, comm);
       hypre_FinalizeTiming(time_index);
       hypre_ClearTiming();
       fflush(NULL);
-
-      HYPRE_BoomerAMGGetCumNnzAP(pcg_precond, &cum_nnz_AP);
-
-      FOM1 = cum_nnz_AP / wall_time;
-      total_time = wall_time;
-
-      if (myid == 0)
-      {
-         hypre_printf ("\nFOM_Setup: nnz_AP / Setup Phase Time: %e\n\n", FOM1);
-      }
-
-#ifdef USE_CALIPER
-      adiak_namevalue("Setup-FOM", adiak_general, NULL, "%f", FOM1);
-#endif
-      time_index = hypre_InitializeTiming("GMRES Solve");
-      hypre_MPI_Barrier(comm);
-#ifdef USE_CALIPER
-      CALI_MARK_BEGIN("Solve");
-#endif
-      hypre_BeginTiming(time_index);
-
-      HYPRE_GMRESSolve (pcg_solver, (HYPRE_Matrix)parcsr_A, (HYPRE_Vector)b, (HYPRE_Vector)x);
-
-      hypre_MPI_Barrier(comm);
-      hypre_EndTiming(time_index);
-#ifdef USE_CALIPER
-      CALI_MARK_END("Solve");
-#endif
-      hypre_GetTiming("Problem 1: AMG-GMRES Solve Time", &wall_time, comm);
-      hypre_FinalizeTiming(time_index);
-      hypre_ClearTiming();
-      fflush(NULL);
-
-      HYPRE_GMRESGetNumIterations(pcg_solver, &num_iterations);
-      HYPRE_GMRESGetFinalRelativeResidualNorm(pcg_solver, &final_res_norm);
-
-      HYPRE_BoomerAMGDestroy(pcg_precond);
-
-      HYPRE_ParCSRGMRESDestroy(pcg_solver);
-      FOM2 = cum_nnz_AP / wall_time;
-      total_time += wall_time;
+      // FOM2 = cum_nnz_AP / wall_time;
+      // total_time += wall_time;
 
       if (myid == 0)
       {
          hypre_printf("\n");
-         hypre_printf("Iterations = %d\n", num_iterations);
+         hypre_printf("No. of Time Steps = %d\n", time_steps);
+         hypre_printf("Cum. No. of Iterations = %d\n", cum_num_its);
          hypre_printf("Final Relative Residual Norm = %e\n", final_res_norm);
          hypre_printf("\n");
-         hypre_printf ("\nFOM_Solve: nnz_AP / Solve Phase Time: %e\n\n", FOM2);
-         FOM1 = cum_nnz_AP / total_time;
+         // hypre_printf ("\nFOM_Solve: nnz_AP / Solve Phase Time: %e\n\n", FOM2);
+         // FOM1 = cum_nnz_AP / total_time;
 #ifdef USE_CALIPER
          adiak_namevalue("Solve-FOM", adiak_general, NULL, "%f", FOM2);
          adiak_namevalue("Final-FOM", adiak_general, NULL, "%f", FOM1);
 #endif
-         hypre_printf ("\n\nFigure of Merit (FOM): nnz_AP / (Setup Phase Time + Solve Phase Time) %e\n\n", FOM1);
+         // hypre_printf ("\n\nFigure of Merit (FOM): nnz_AP / (Setup Phase Time + Solve Phase Time) %e\n\n", FOM1);
       }
 #ifdef USE_CALIPER
       CALI_MARK_END("Problem");
@@ -3049,4 +3093,3 @@ BuildIJLaplacian7pt( HYPRE_Int            argc,
 
    return (0);
 }
-
