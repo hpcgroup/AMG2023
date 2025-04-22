@@ -106,6 +106,8 @@ configure_file(
   "${CMAKE_BINARY_DIR}/amg-config.h"
 )
 
++set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2")
+
 add_executable(amg amg.c)
 target_link_libraries(amg PRIVATE stdc++)
 
