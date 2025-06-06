@@ -51,6 +51,10 @@
 #include <adiak.h>
 #endif
 
+#ifdef USE_CASSINI
+#include "CassiniCounters.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -192,6 +196,24 @@ main( hypre_int argc,
 
    hypre_MPI_Comm_size(comm, &num_procs );
    hypre_MPI_Comm_rank(comm, &myid );
+
+#ifdef USE_CASSINI
+   /* Initialize CassiniPapi */
+   CassiniContext *cassini_ctx = NULL;
+   InitCassiniCounters(argv[0], &cassini_ctx);
+   
+   /* Set up output filename */
+   char cassini_filename[256];
+   char *jobid = getenv("SLURM_JOB_ID");
+   if (!jobid) {
+       jobid = "unknown_jobid";
+   }
+   snprintf(cassini_filename, sizeof(cassini_filename), "j%s_amg_cassini_measurements.json", jobid);
+   SetCassiniOutputFilename(cassini_ctx, cassini_filename);
+   
+   /* Set sampling interval to 1 second */
+   SetCassiniSamplingInterval(cassini_ctx, 1);
+#endif
 
 #ifdef USE_CALIPER
    /*-----------------------------------------------------------
@@ -692,6 +714,10 @@ main( hypre_int argc,
       hypre_BeginTiming(time_index);
       for (int j = 0; j < time_steps; j++)
       {
+#ifdef USE_CASSINI
+         /* Start recording Cassini counters for this time step */
+         StartRecordCassiniCounters(cassini_ctx);
+#endif
 	      if (myid == 0) {start_time = MPI_Wtime();}
          HYPRE_ParCSRGMRESCreate(comm, &pcg_solver);
          HYPRE_GMRESSetKDim(pcg_solver, k_dim);
@@ -798,6 +824,13 @@ main( hypre_int argc,
             end_time = MPI_Wtime();
             printf("time_steps %3d: %f s\n", j, end_time - start_time);
          }
+#ifdef USE_CASSINI
+         /* End recording Cassini counters for this time step */
+         EndRecordCassiniCounters(cassini_ctx);
+         if (myid == 0) {
+            printf("time_step %3d: Cassini counters recorded\n", j);
+         }
+#endif
       }
       hypre_MPI_Barrier(comm);
       hypre_EndTiming(time_index);
@@ -877,6 +910,14 @@ main( hypre_int argc,
 #endif
 
    /* Finalize MPI */
+#ifdef USE_CASSINI
+   /* Finalize CassiniPapi and write output */
+   FinalizeCassiniCounters(cassini_ctx);
+   if (myid == 0) {
+      printf("CassiniPapi measurements written to %s\n", cassini_filename);
+   }
+#endif
+
    hypre_MPI_Finalize();
 
    return (0);

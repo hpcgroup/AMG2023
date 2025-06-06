@@ -19,11 +19,12 @@ add_definitions(-DAMG_CMAKE_BUILD=1)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 option(AMG_WITH_MPI "Use MPI" TRUE) 
-option(AMG_WITH_CUDA "Use CUDA" FALSE)
+option(AMG_WITH_CUDA "Use CUDA" TRUE)
 option(AMG_WITH_HIP "Use HIP" FALSE)
 option(AMG_WITH_CALIPER "Enable Caliper" FALSE)
 option(AMG_WITH_OMP "Enable OpenMP" FALSE)
 option(AMG_WITH_UMPIRE "Enable Umpire support (requires Umpire support in HYPRE)" FALSE)
+option(AMG_WITH_CASSINI "Enable CassiniPapi performance counters" TRUE)
 
 find_library(HYPRE_LIBRARIES
     NAMES HYPRE
@@ -101,12 +102,47 @@ if (AMG_WITH_UMPIRE)
     umpire)
 endif()
 
+if (AMG_WITH_CASSINI)
+  # CassiniPapi library paths
+  set(CASSINI_DIR "/pscratch/sd/c/cunyang/CassiniPapi/src")
+  set(CASSINI_INCLUDE_DIR "${CASSINI_DIR}/include")
+  set(CASSINI_LIB_DIR "${CASSINI_DIR}/lib")
+  
+  # Find CassiniPapi library
+  find_library(CASSINI_LIBRARY
+    NAMES cassini
+    PATHS ${CASSINI_LIB_DIR}
+    REQUIRED)
+  
+  # Find PAPI library (required by CassiniPapi)
+  find_library(PAPI_LIBRARY
+    NAMES papi
+    REQUIRED)
+  
+  # Add include directory
+  include_directories(${CASSINI_INCLUDE_DIR})
+  
+  # Add libraries to dependencies
+  list(APPEND AMG_DEPENDENCIES
+    ${CASSINI_LIBRARY}
+    ${PAPI_LIBRARY}
+    pthread)
+  
+  # Add compile definition
+  add_definitions(-DUSE_CASSINI)
+  
+  message(STATUS "CassiniPapi support enabled")
+  message(STATUS "  CASSINI_LIBRARY: ${CASSINI_LIBRARY}")
+  message(STATUS "  PAPI_LIBRARY: ${PAPI_LIBRARY}")
+endif()
+
 configure_file(
   "${CMAKE_SOURCE_DIR}/amg-config.h.in"
   "${CMAKE_BINARY_DIR}/amg-config.h"
 )
 
-+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2")
+
 
 add_executable(amg amg.c)
 target_link_libraries(amg PRIVATE stdc++)
