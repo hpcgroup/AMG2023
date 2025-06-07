@@ -212,7 +212,7 @@ main( hypre_int argc,
    SetCassiniOutputFilename(cassini_ctx, cassini_filename);
    
    /* Set sampling interval to 1 second */
-   SetCassiniSamplingInterval(cassini_ctx, 1);
+   // SetCassiniSamplingInterval(cassini_ctx, 1);
 #endif
 
 #ifdef USE_CALIPER
